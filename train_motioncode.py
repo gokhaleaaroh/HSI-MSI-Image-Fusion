@@ -57,17 +57,22 @@ model = MotionCode(m=12, Q=1, latent_dim=2, sigma_y=0.1)
 
 print("X_train shape: ", X_train.shape)
 
-model_path = 'motion_code/saved_models/test_model'
-model.load(model_path)
+model_path = 'motion_code/saved_models/jasper_ridge'
 
+# Then we train model on the given X_train, Y_train, label_train set and saved it to a file named test_model.
+model.fit(X_train, Y_train, labels_train, model_path)
+
+
+
+
+
+model = MotionCode(m=12, Q=1, latent_dim=2, sigma_y=0.1)
+
+model.load(model_path)
 from motion_code.utils import plot_motion_codes
 
 plot_motion_codes(X_train, Y_train, test_time_horizon=None, labels=labels_train, label_names=label_names, \
                            model=model, output_dir='motion_code/out/multiple/', additional_data=None)
 
 
-# Then we train model on the given X_train, Y_train, label_train set and saved it to a file named test_model.
-model_path = 'motion_code/saved_models/' + 'test_model'
-model.fit(X_train, Y_train, labels_train, model_path)
 
-model = MotionCode(m=12, Q=1, latent_dim=2, sigma_y=0.1)

@@ -28,6 +28,7 @@ def main_training_loop(trainloader, net,
     loss_fn = loss_factory[config['loss']['name']](**config['loss']['kwargs'])
     lowest_loss = torch.inf
     ds_len = len(trainloader)
+    shape = None
     for epoch in range(num_epochs):  # loop over the dataset multiple times
         print(f'Epoch: {epoch+1}')
         running_loss = 0.0
@@ -38,7 +39,10 @@ def main_training_loop(trainloader, net,
             # forward + backward + optimize
             outputs = net(hsi_batch.to(torch.double).to(device), 
                           rgb_batch.to(torch.double).to(device))
-            loss = loss_fn(outputs, labels_batch.to(device))
+            if shape is None:
+                shape = outputs['preds'].shape
+
+            loss = loss_fn(outputs, labels_batch.reshape(shape).to(device))
             loss.backward()
             optimizer.step()
             running_loss += loss.item()

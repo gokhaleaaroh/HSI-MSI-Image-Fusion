@@ -12,3 +12,6 @@ torchmetrics
 spectral
 PyQt6
 rasterio
+segment_anything
+tensorboard
+ConfigSpace
