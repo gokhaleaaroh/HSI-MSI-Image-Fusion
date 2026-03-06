@@ -7,7 +7,7 @@ from tqdm import tqdm
 import argparse
 import csv
 from pathlib import Path
-from smac import RunHistory
+# from smac import RunHistory
 import json
 import pdb
 

@@ -1,0 +1,14 @@
+matplotlib
+torch
+scipy
+sktime
+torchvision
+albumentations
+imaug
+einops
+tqdm
+jax
+torchmetrics
+spectral
+PyQt6
+rasterio
