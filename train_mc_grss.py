@@ -37,7 +37,9 @@ print("gt reshaped: ", gt_reshaped.shape)
 size_each_class = 50
 color = 10
 colors = ['red', 'green', 'blue', 'orange', 'purple', 'cyan', 'magenta', 'yellow', 'black', 'brown', 'pink', 'gray', 'olive', 'teal', 'navy', 'maroon', 'lime', 'coral', 'gold', 'silver', 'slategray']
-label_names = ['road', 'tree', 'water', 'dirt', 'shade', 'building', 'vehicle', 'person', 'animal', 'other', 'sky', 'grass', 'rock', 'sand', 'snow', 'cloud', 'shadow', 'fence', 'sign', 'xyz', 'unknown']
+
+label_names = ["Unclassified", "Healthy grass", "Stressed grass", "Artificial turf", "Evergreen trees", "Deciduous trees", "Bare earth", "Water", "Residential buildings", "Non-residential buildings", "Roads", "Sidewalks", "Crosswalks", "Major thoroughfares", "Highways", "Railways", "Paved parking lots", "Unpaved parking lots", "Cars", "Trains", "Stadium seats"]
+
 
 num_classes = 21
 indices = None
