@@ -7,6 +7,10 @@ import torch
 from motion_code.sparse_gp import *
 from motion_code.utils import *
 
+# from sparse_gp import *
+# from utils import *
+
+
 def optimize_motion_codes(X_list, Y_list, labels, model_path, m=10, Q=8, latent_dim=3, sigma_y=0.1):
     '''
     Main algorithm to optimize all variables for the Motion Code model.
@@ -21,9 +25,39 @@ def optimize_motion_codes(X_list, Y_list, labels, model_path, m=10, Q=8, latent_
     W_start = softplus_inv(np.ones((num_motion, Q)))
 
     # Optimize X_m, Z, and kernel parameters including Sigma, W
-    res = minimize(fun=elbo_fn(X_list, Y_list, labels, sigma_y, dims),
-        x0 = pack_params([X_m_start, Z_start, Sigma_start, W_start]),
-        method='L-BFGS-B', jac=True)
+    # res = minimize(fun=elbo_fn_vec(X_list, Y_list, labels, sigma_y, dims),
+    #     x0 = pack_params([X_m_start, Z_start, Sigma_start, W_start]),
+    #     method='L-BFGS-B', jac=True)
+
+
+    def callback_function(xk):
+        """
+        Called after each iteration.
+        xk is the current parameter vector.
+        """
+        print(f"Iteration: {callback_function.iteration}")
+        callback_function.iteration += 1
+ 
+    callback_function.iteration = 0
+
+    res = minimize(
+        fun=elbo_fn(X_list, Y_list, labels, sigma_y, dims),
+        x0=pack_params([X_m_start, Z_start, Sigma_start, W_start]),
+        method='L-BFGS-B',
+        jac=True, callback=callback_function
+    )
+
+    print(res.message)
+
+    # res = minimize(
+    #     fun=elbo_fn(X_list, Y_list, labels, sigma_y, dims),
+    #     x0=pack_params([X_m_start, Z_start, Sigma_start, W_start]),
+    #     method='L-BFGS-B',
+    #     jac=True,
+    #     options={'maxcor': 100, 'ftol': 1e-5, 'gtol': 1e-5}
+    # )
+
+
     X_m, Z, Sigma, W = unpack_params(res.x, dims=dims)
     Sigma = softplus(Sigma)
     W = softplus(W)
@@ -51,7 +85,7 @@ def optimize_motion_codes(X_list, Y_list, labels, model_path, m=10, Q=8, latent_
     np.save(model_path, model)
     return
 
-def optimize_motion_codes_gpu(X_list, Y_list, labels, model_path, m=10, Q=8, latent_dim=3, sigma_y=0.1, maxiter=500, tol=1e-5):
+def optimize_motion_codes_gpu(X_list, Y_list, labels, model_path, m=10, Q=8, latent_dim=3, sigma_y=0.1, maxiter=15000, tol=1e-5):
     '''
     GPU-accelerated version of optimize_motion_codes.
     Uses PyTorch's L-BFGS optimizer so the entire optimization loop
@@ -59,43 +93,76 @@ def optimize_motion_codes_gpu(X_list, Y_list, labels, model_path, m=10, Q=8, lat
     stays on the GPU, avoiding per-iteration device round-trips.
     '''
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print("Device: ", device)
     dtype = torch.float64
 
     num_motion = np.unique(labels).shape[0]
     dims = (num_motion, m, latent_dim, Q)
 
-    # ---- PyTorch re-implementations of sparse_gp helpers ----
-    def _spectral_kernel(X1, X2, sigma, alpha):
-        X12 = (X1.unsqueeze(1) - X2.unsqueeze(0)).unsqueeze(-1)
+    # ---- Batched PyTorch re-implementations of sparse_gp helpers ----
+    def _spectral_kernel_batched(X1, X2, sigma, alpha):
+        X12 = (X1.unsqueeze(2) - X2.unsqueeze(1)).unsqueeze(-1)
         return torch.sum(
-            alpha.reshape(1, 1, -1)
-            * torch.exp(-0.5 * X12 * sigma.reshape(1, 1, -1) * X12),
+            alpha.unsqueeze(1).unsqueeze(2)
+            * torch.exp(-0.5 * X12 * sigma.unsqueeze(1).unsqueeze(2) * X12),
             dim=-1,
         )
 
     jitter_val = torch.tensor(1e-6, device=device, dtype=dtype)
 
-    def _elbo_from_kernel(K_mm, K_mn, y, trace_avg, sigma_y):
-        n = y.shape[0]
+    def _elbo_batched(K_mm, K_mn, y, trace_avg, sigma_y, num_valid, mask):
+        K_mn = K_mn * mask
+        y = y * mask.transpose(1, 2)
+
         L = torch.linalg.cholesky(K_mm)
         A = torch.linalg.solve_triangular(L, K_mn, upper=False) / sigma_y
-        AAT = A @ A.T
-        B = torch.eye(K_mn.shape[0], device=device, dtype=dtype) + AAT
+        AAT = torch.matmul(A, A.transpose(-1, -2))
+
+        B = torch.eye(K_mm.shape[1], device=device, dtype=dtype).unsqueeze(0) + AAT
+        # Add jitter to B to guarantee it remains strictly positive definite
+        # B = B + torch.eye(K_mm.shape[1], device=device, dtype=dtype).unsqueeze(0) * b_jitter_val
         LB = torch.linalg.cholesky(B)
-        c = torch.linalg.solve_triangular(LB, A @ y, upper=False) / sigma_y
 
-        lb = -n / 2 * np.log(2 * np.pi)
-        lb = lb - torch.sum(torch.log(torch.diag(LB)))
-        lb = lb - n / 2 * np.log(sigma_y ** 2)
-        lb = lb - 0.5 / sigma_y ** 2 * (y.T @ y).squeeze()
-        lb = lb + 0.5 * (c.T @ c).squeeze()
-        lb = lb - 0.5 / sigma_y ** 2 * n * trace_avg
-        lb = lb + 0.5 * torch.trace(AAT)
-        return -lb
+        Ay = torch.matmul(A, y)
+        c = torch.linalg.solve_triangular(LB, Ay, upper=False) / sigma_y
 
-    # ---- Move data to device ----
-    X_list_t = [torch.tensor(np.asarray(x), device=device, dtype=dtype) for x in X_list]
-    Y_list_t = [torch.tensor(np.asarray(y), device=device, dtype=dtype) for y in Y_list]
+        lb = -num_valid / 2 * np.log(2 * np.pi)
+        lb = lb - torch.sum(torch.log(torch.diagonal(LB, dim1=-2, dim2=-1)), dim=-1)
+        lb = lb - num_valid / 2 * np.log(sigma_y ** 2)
+
+        y_sq = torch.sum(y ** 2, dim=[1, 2])
+        c_sq = torch.sum(c ** 2, dim=[1, 2])
+
+        lb = lb - 0.5 / sigma_y ** 2 * y_sq
+        lb = lb + 0.5 * c_sq
+        lb = lb - 0.5 / sigma_y ** 2 * num_valid * trace_avg
+
+        aat_tr = torch.sum(torch.diagonal(AAT, dim1=-2, dim2=-1), dim=-1)
+        lb = lb + 0.5 * aat_tr
+
+        return torch.mean(-lb)
+
+    # ---- Move data to device (Batched and Padded) ----
+    n_series = len(X_list)
+    max_len = max(len(x) for x in X_list)
+    X_pad = np.zeros((n_series, max_len))
+    Y_pad = np.zeros((n_series, max_len))
+    mask = np.zeros((n_series, max_len))
+    num_valid = np.zeros(n_series)
+
+    for i in range(n_series):
+        L = len(X_list[i])
+        X_pad[i, :L] = np.asarray(X_list[i]).flatten()
+        Y_pad[i, :L] = np.asarray(Y_list[i]).flatten()
+        mask[i, :L] = 1.0
+        num_valid[i] = L
+
+    X_pad_t = torch.tensor(X_pad, device=device, dtype=dtype)
+    Y_pad_t = torch.tensor(Y_pad, device=device, dtype=dtype).unsqueeze(-1)
+    mask_t = torch.tensor(mask, device=device, dtype=dtype).unsqueeze(1)
+    num_valid_t = torch.tensor(num_valid, device=device, dtype=dtype)
+    labels_arr = np.asarray(labels)
+    labels_t = torch.tensor(labels_arr, device=device, dtype=torch.long)
 
     # ---- Initialize parameters ----
     X_m_start = np.repeat(
@@ -108,9 +175,6 @@ def optimize_motion_codes_gpu(X_list, Y_list, labels, model_path, m=10, Q=8, lat
 
     x0 = pack_params([X_m_start, Z_start, Sigma_start, W_start])
     params = torch.tensor(x0, device=device, dtype=dtype, requires_grad=True)
-
-    n_series = len(X_list_t)
-    labels_arr = np.asarray(labels)
 
     def _unpack(p):
         idx = 0
@@ -126,18 +190,22 @@ def optimize_motion_codes_gpu(X_list, Y_list, labels, model_path, m=10, Q=8, lat
         S = torch.nn.functional.softplus(S)
         W = torch.nn.functional.softplus(W)
 
-        loss = torch.tensor(0.0, device=device, dtype=dtype)
-        for i in range(n_series):
-            k = labels_arr[i]
-            X_m_k = torch.sigmoid(X_m @ Z[k])
-            eye_m = torch.eye(X_m_k.shape[0], device=device, dtype=dtype) * jitter_val
-            K_mm = _spectral_kernel(X_m_k, X_m_k, S[k], W[k]) + eye_m
-            K_mn = _spectral_kernel(X_m_k, X_list_t[i], S[k], W[k])
-            trace_avg = torch.sum(W[k] ** 2)
-            y_n_k = Y_list_t[i].reshape(-1, 1)
-            loss = loss + _elbo_from_kernel(K_mm, K_mn, y_n_k, trace_avg, sigma_y)
+        # Broadcasted batched parameters
+        Z_b = Z[labels_t]
+        S_b = S[labels_t]
+        W_b = W[labels_t]
 
-        loss = loss / n_series
+        X_m_k_b = torch.sigmoid(torch.matmul(Z_b, X_m.T))
+        
+        K_mm = _spectral_kernel_batched(X_m_k_b, X_m_k_b, S_b, W_b)
+        eye_m = torch.eye(m, device=device, dtype=dtype).unsqueeze(0) * jitter_val
+        K_mm = K_mm + eye_m
+        
+        K_mn = _spectral_kernel_batched(X_m_k_b, X_pad_t, S_b, W_b)
+        trace_avg = torch.sum(W_b ** 2, dim=-1)
+        
+        loss = _elbo_batched(K_mm, K_mn, Y_pad_t, trace_avg, sigma_y, num_valid_t, mask_t)
+
         loss.backward()
         return loss
 
@@ -149,7 +217,7 @@ def optimize_motion_codes_gpu(X_list, Y_list, labels, model_path, m=10, Q=8, lat
     optimizer.step(closure)
 
     # ---- Convert optimized params back to numpy / JAX for phi_opt ----
-    params_np = params.detach().cpu().numpy()
+    params_np = params.detach().cpu().numpy().astype(np.float64)
     X_m, Z, Sigma, W = unpack_params(params_np, dims=dims)
     Sigma = softplus(Sigma)
     W = softplus(W)

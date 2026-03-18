@@ -45,6 +45,7 @@ Y_train_all = img_hsi_reshaped.reshape(all_num_series, 1, -1)
 Y_train = img_hsi_reshaped[indices, :].reshape(num_series, 1, -1)
 labels_train_all = np.argmax(gt_reshaped, axis=1)
 labels_train = np.argmax(gt_reshaped[indices, :], axis=1)
+print("Shape of training labels: ", labels_train.shape)
 print(Y_train.shape, labels_train.shape)
 
 # Then we process the data for motion code model and generate X-variable, which is needed for training.

@@ -20,8 +20,7 @@ from sktime.forecasting.naive import NaiveForecaster
 from sktime.forecasting.arima import ARIMA
 from sktime.forecasting.exp_smoothing import ExponentialSmoothing
 from sktime.forecasting.structural import UnobservedComponents
-from sktime.forecasting.tbats import TBATS
-from data_processing import get_train_test_data_forecast, get_train_test_data_classify
+from data_processing import get_train_test_data_forecast
 from motion_code import MotionCode, motion_code_classify, motion_code_forecast
 from utils import RMSE
 
@@ -100,9 +99,9 @@ def main(forecast, dataset_type,
                             (ARIMA(order=(1, 1, 0), seasonal_order=(0, 1, 0, 12), suppress_warnings=True), 'ARIMA'),
                             (UnobservedComponents(level="local linear trend", freq_seasonal=[{"period": 12, "harmonics": 10}]), 'State-space'),
                             (NaiveForecaster(strategy="last", sp=12), 'Last seen'),
-                            (TBATS(use_box_cox=False, use_trend=False, 
-                                use_damped_trend=False, sp=12, use_arma_errors=False, n_jobs=1), "TBATS"),
                             (MotionCode(), 'Motion Code')]
+
+        all_forecasters = [(MotionCode(), 'Motion Code')]
         # Run forecasters
         result = defaultdict(list)
         for forecaster, forecaster_name in all_forecasters:
@@ -192,6 +191,7 @@ if __name__ == '__main__':
     load_existing_data = args.load_existing_data
     load_existing_model = args.load_existing_model
     output_path = args.output_path
+    forecast = True
     task = 'forecast' if forecast else 'classify'
     print('Command line parameters')
     print(f'Perform {task}')

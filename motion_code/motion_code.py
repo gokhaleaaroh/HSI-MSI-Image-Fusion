@@ -3,9 +3,15 @@ from tqdm import tqdm
 import numpy as np
 
 from motion_code.data_processing import load_data, process_data_for_motion_codes, split_train_test_forecasting
-from motion_code.motion_code_utils import optimize_motion_codes, classify_predict_helper
+from motion_code.motion_code_utils import optimize_motion_codes, optimize_motion_codes_gpu, classify_predict_helper
 from motion_code.sparse_gp import sigmoid, q
 from motion_code.utils import accuracy, RMSE
+
+# from data_processing import load_data, process_data_for_motion_codes, split_train_test_forecasting
+# from motion_code_utils import optimize_motion_codes, optimize_motion_codes_gpu, classify_predict_helper
+# from sparse_gp import sigmoid, q
+# from utils import accuracy, RMSE
+
 
 class MotionCode:
     """
@@ -75,9 +81,10 @@ class MotionCode:
     def fit(self, X_train, Y_train, labels_train, model_path):
         start_time = time.time()
         self.model_path = model_path
-        optimize_motion_codes(X_train, Y_train, labels_train, model_path=model_path, 
+        optimize_motion_codes_gpu(X_train, Y_train, labels_train, model_path=model_path, 
               m=self.m, Q=self.Q, latent_dim=self.latent_dim, sigma_y=self.sigma_y)
         self.train_time = time.time() - start_time
+        print("time taken: ", self.train_time)
 
     def load(self, model_path=''):
         if len(model_path) == 0 and self.model_path is not None:

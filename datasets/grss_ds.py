@@ -25,24 +25,24 @@ def input_processing(img_path, gt_path):
 
     return img_sri, gt
 
-class JasperRidgeDataset(BaseSegmentationDataset):
-    ''' Simple dataset from subimage of a single HSI image'''
+class jasperridgedataset(basesegmentationdataset):
+    ''' simple dataset from subimage of a single hsi image'''
     def __init__(self,
                  single_img_path, single_gt_path,
                  start_band, end_band, 
                  rgb_width, rgb_height,
                  hsi_width, hsi_height,
                  top_k,
-                 channels=None, 
+                 channels=none, 
                  mode="train", 
-                 transforms=None, 
+                 transforms=none, 
                  split_ratio=0.8, seed=42, 
                  window_size=5, conductivity=0.95,
-                 gamma=0.4, contrast_enhance=True,
+                 gamma=0.4, contrast_enhance=true,
                  **kwargs):
         
         self.colors = ['purple', 'brown', 'blue', 'green']
-        self.label_names = ['Road', 'Soil', 'Water', 'Tree']
+        self.label_names = ['road', 'soil', 'water', 'tree']
         num_classes =len(self.label_names)
         self.top_k = top_k
         self.channels = get_top_channels(num_motion=num_classes, 
@@ -72,8 +72,8 @@ class JasperRidgeDataset(BaseSegmentationDataset):
         
     def get_rgb(self, img_sri):
         num_bands = img_sri.shape[-1]
-        # Infer RGB from SRI 
+        # infer rgb from sri 
         dist_band = (self.end_band - self.start_band)/ (num_bands - 1)
-        RGB_indices = np.array((RGB - self.start_band)/dist_band, dtype=int)
-        img_rgb = spy.get_rgb(img_sri, (RGB_indices[0], RGB_indices[1], RGB_indices[2]))
+        rgb_indices = np.array((rgb - self.start_band)/dist_band, dtype=int)
+        img_rgb = spy.get_rgb(img_sri, (rgb_indices[0], rgb_indices[1], rgb_indices[2]))
         return img_rgb

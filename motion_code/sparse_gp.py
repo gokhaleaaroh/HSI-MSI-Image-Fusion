@@ -177,6 +177,87 @@ def elbo_fn(X_list, Y_list, labels, sigma_y, dims):
 
     return elbo_grad_wrapper
 
+def elbo_fn_vec(X_list, Y_list, labels, sigma_y, dims):
+    """
+    Vectorized version of elbo_fn. Pads variable-length series, batches all
+    kernel and ELBO computations, and masks out padded entries.
+    """
+    num_motion, m, latent_dim, Q = dims
+    n_series = len(X_list)
+    labels_arr = np.array(labels)
+
+    max_len = max(len(x) for x in X_list)
+    X_pad = np.zeros((n_series, max_len))
+    Y_pad = np.zeros((n_series, max_len))
+    valid_mask = np.zeros((n_series, max_len))
+    n_valid = np.zeros(n_series)
+
+    for i in range(n_series):
+        li = len(X_list[i])
+        X_pad[i, :li] = np.asarray(X_list[i]).flatten()
+        Y_pad[i, :li] = np.asarray(Y_list[i]).flatten()
+        valid_mask[i, :li] = 1.0
+        n_valid[i] = li
+
+    X_pad_j = jnp.array(X_pad)
+    Y_pad_j = jnp.array(Y_pad)[:, :, None]       # (n_series, max_len, 1)
+    mask_j = jnp.array(valid_mask)[:, None, :]    # (n_series, 1, max_len)
+    n_valid_j = jnp.array(n_valid)
+    labels_j = jnp.array(labels_arr)
+
+    def _spectral_kernel_batched(X1, X2, sigma, alpha):
+        """X1: (B,m), X2: (B,n), sigma/alpha: (B,Q) -> (B,m,n)"""
+        X12 = (X1[:, :, None] - X2[:, None, :])[..., None]
+        return jnp.sum(
+            alpha[:, None, None, :] *
+            jnp.exp(-0.5 * X12 * sigma[:, None, None, :] * X12),
+            axis=-1,
+        )
+
+    jitter_eye = jnp.eye(m)[None, :, :] * 1e-6
+    eye_m = jnp.eye(m)[None, :, :]
+
+    def elbo(params):
+        X_m, Z, Sigma, W = unpack_params(params, dims)
+        Sigma = softplus(Sigma)
+        W = softplus(W)
+
+        S_b = Sigma[labels_j]   # (n_series, Q)
+        W_b = W[labels_j]       # (n_series, Q)
+        X_m_k = sigmoid(Z[labels_j] @ X_m.T)  # (n_series, m)
+
+        K_mm = _spectral_kernel_batched(X_m_k, X_m_k, S_b, W_b) + jitter_eye
+        K_mn = _spectral_kernel_batched(X_m_k, X_pad_j, S_b, W_b)
+
+        K_mn = K_mn * mask_j                       # zero out padded columns
+        y = Y_pad_j * mask_j.transpose(0, 2, 1)    # zero out padded rows
+
+        L = jnp.linalg.cholesky(K_mm)
+        A = jsp.linalg.solve_triangular(L, K_mn, lower=True) / sigma_y
+        AAT = A @ jnp.swapaxes(A, -1, -2)
+
+        B = eye_m + AAT
+        LB = jnp.linalg.cholesky(B)
+        c = jsp.linalg.solve_triangular(LB, A @ y, lower=True) / sigma_y
+
+        lb = -n_valid_j / 2 * jnp.log(2 * jnp.pi)
+        lb -= jnp.sum(jnp.log(jnp.diagonal(LB, axis1=-2, axis2=-1)), axis=-1)
+        lb -= n_valid_j / 2 * jnp.log(sigma_y ** 2)
+        lb -= 0.5 / sigma_y ** 2 * jnp.sum(y[:, :, 0] ** 2, axis=-1)
+        lb += 0.5 * jnp.sum(c[:, :, 0] ** 2, axis=-1)
+        lb -= 0.5 / sigma_y ** 2 * n_valid_j * jnp.sum(W_b ** 2, axis=-1)
+        lb += 0.5 * jnp.sum(jnp.diagonal(AAT, axis1=-2, axis2=-1), axis=-1)
+
+        return jnp.mean(-lb)
+
+    elbo_grad = jit(value_and_grad(elbo))
+
+    def elbo_grad_wrapper(params):
+        value, grads = elbo_grad(params)
+        return np.array(value), np.array(grads)
+
+    return elbo_grad_wrapper
+
 ## Predict distribution, mean and covariance methods from trained kernel parameters and inducing pts ##
 @jit
 def phi_opt(X_m, X_list, Y_list, sigma_y, kernel_params):

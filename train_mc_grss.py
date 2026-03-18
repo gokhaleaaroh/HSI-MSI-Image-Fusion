@@ -23,6 +23,7 @@ hsi_hdr = "./data/GRSS/ImageryAndTrainingGT/2018IEEE_Contest/Phase2/Aligned/hsi_
 gt_path = "./data/GRSS/ImageryAndTrainingGT/2018IEEE_Contest/Phase2/Aligned/gt_aligned"
 gt_hdr = "./data/GRSS/ImageryAndTrainingGT/2018IEEE_Contest/Phase2/Aligned/gt_aligned.hdr"
 
+
 img_hsi = load_envi_data(hsi_path, hsi_hdr)
 gt = load_envi_data(gt_path, gt_hdr)
 
@@ -71,14 +72,14 @@ X_train_all, Y_train_all, labels_train_all = process_data_for_motion_codes(Y_tra
 print(X_train.shape, Y_train.shape, labels_train.shape)
 print(X_train_all.shape, Y_train_all.shape, labels_train_all.shape)
 
-# model = MotionCode(m=12, Q=1, latent_dim=2, sigma_y=0.1)
+model = MotionCode(m=12, Q=1, latent_dim=2, sigma_y=0.1)
 # 
 # print("X_train shape: ", X_train.shape)
 # 
 model_path = 'motion_code/saved_models/grss'
 # 
 # # Then we train model on the given X_train, Y_train, label_train set and saved it to a file named test_model.
-# model.fit(X_train, Y_train, labels_train, model_path)
+model.fit(X_train, Y_train, labels_train, model_path)
 
 
 

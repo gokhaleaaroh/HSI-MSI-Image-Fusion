@@ -115,4 +115,3 @@ if __name__ == '__main__':
         msi = torch.rand(2, 3, 256*i, 256*i)
         output = model(hsi, msi)
         print(output.shape)  
-

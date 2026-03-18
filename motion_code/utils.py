@@ -6,9 +6,11 @@ mpl.use("QtAgg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from motion_code.sparse_gp import *
+# from sparse_gp import *
 
 # Color list for plotting
-COLOR_LIST = ['red', 'green', 'blue', 'orange', 'purple', 'black', 'brown', 'grey', 'yellow', 'black', 'hotpink']
+# COLOR_LIST = ['red', 'green', 'blue', 'orange', 'purple', 'black', 'brown', 'grey', 'yellow', 'black', 'hotpink']
+COLOR_LIST = ['red', 'green', 'blue', 'orange', 'purple', 'black', 'brown', 'grey', 'yellow', 'black', 'hotpink', 'cyan', 'magenta', 'lime', 'teal', 'navy', 'gold', 'indigo', 'silver', 'olive', 'maroon'] 
 
 ## Metric utils ##
 def accuracy(pred, gt):
@@ -78,6 +80,7 @@ def plot_motion_codes(X_train, Y_train, test_time_horizon, labels, label_names,
     # Get prediction and inducing points
     labels = np.array(labels, dtype=int)
     num_motion = np.unique(labels).shape[0]
+    print("Number of motion types: ", num_motion)
     X_m, Z = model.X_m, model.Z
     X_m_ks = [sigmoid(X_m @ Z[k]) for k in range(num_motion)]
 
@@ -123,8 +126,6 @@ def plot_motion_codes(X_train, Y_train, test_time_horizon, labels, label_names,
             Y_test = np.mean(np.array(Y_test_all), axis=0)
         else:
             # Y_test = [np.interp(X_m_ks[k], x1, y1) for x1, y1 in zip(X1, np.mean(Y1, axis=0))]
-            print("X1 shape: ", X1.shape)
-            print("Y1 mean shape: ", np.mean(Y1, axis=0).shape)
             Y_test = np.mean(np.array([np.interp(X_m_ks[k], x1, np.mean(Y1, axis=0)) for x1 in X1]), axis=0)
         plt.scatter(X_m_ks[k], Y_test, color=color, s=20, zorder=2,
                     label='Mean values at the most\ninformative timestamps')

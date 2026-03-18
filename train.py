@@ -76,23 +76,23 @@ def main(hyperparam_config=None, seed=42):
 main()
 
 
-# def get_best_params():
-#     configspace = ConfigurationSpace({"conductivity": (0.0, 1.0),
-#                                       "window_size": [2, 3, 4, 5, 6]
-#                                       })
-#     # configspace = ConfigurationSpace({
-#     #                                     "alpha": (0.0, 1.0),
-#     #                                   "gamma": [2.0, 3.0, 4.0]
-#     #                                   })
-#     scenario = Scenario(configspace,
-#                         name="get_loss_urban_best", 
-#                         deterministic=True, n_trials=10)
-#     smac = HyperparameterOptimizationFacade(scenario, main)
-#     incumbent = smac.optimize()
-#     
-#     # Let's calculate the cost of the incumbent
-#     incumbent_cost = smac.validate(incumbent)
-#     print(f"Incumbent cost: {incumbent_cost}")
+def get_best_params():
+    configspace = ConfigurationSpace({"conductivity": (0.0, 1.0),
+                                      "window_size": [2, 3, 4, 5, 6]
+                                      })
+    configspace = ConfigurationSpace({
+                                        "alpha": (0.0, 1.0),
+                                      "gamma": [2.0, 3.0, 4.0]
+                                      })
+    scenario = Scenario(configspace,
+                        name="get_loss_urban_best", 
+                        deterministic=True, n_trials=10)
+    smac = HyperparameterOptimizationFacade(scenario, main)
+    incumbent = smac.optimize()
     
+    # Let's calculate the cost of the incumbent
+    incumbent_cost = smac.validate(incumbent)
+    print(f"Incumbent cost: {incumbent_cost}")
+  
 
-# get_best_params()
+get_best_params()
