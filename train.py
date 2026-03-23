@@ -33,7 +33,7 @@ def main(hyperparam_config=None, seed=42):
         config = yaml.safe_load(file)
     if hyperparam_config:
         config["dataset"]["kwargs"].update(hyperparam_config)
-    
+
     # torch.cuda.set_device(config['device'])
     model_name = config['model']['name']
     dataset_name = config['dataset']['name']
@@ -41,17 +41,12 @@ def main(hyperparam_config=None, seed=42):
     train_dataset = dataset_factory[config['dataset']['name']](
                     **config['dataset']['kwargs'], mode="train", 
                     transforms=apply_augmentation)
-    test_dataset = dataset_factory[config['dataset']['name']](
-                    **config['dataset']['kwargs'], mode="test_full", 
-                    transforms=apply_augmentation) # test on full image
+    print("Got here")
     train_loader = DataLoader(train_dataset, 
                               batch_size=config['dataset']['batch_size'], 
                               shuffle=True)
     print("train:", train_dataset)
-    print("test:", test_dataset)
-    test_loader = DataLoader(test_dataset,
-                             batch_size=config['dataset']['batch_size'], 
-                             shuffle=True)
+
     print('total batches:', len(train_loader))
     DEVICE = torch.device(f"cuda:{config['device']}" if torch.cuda.is_available() else "cpu")
     net = model_factory[model_name](**config['model']['kwargs']).to(torch.double).to(DEVICE)
@@ -66,6 +61,13 @@ def main(hyperparam_config=None, seed=42):
     # Close the writer
     writer.close()
     if not hyperparam_config:
+        test_loader = DataLoader(test_dataset,
+            batch_size=config['dataset']['batch_size'], 
+            shuffle=True)
+        test_dataset = dataset_factory[config['dataset']['name']](
+            **config['dataset']['kwargs'], mode="test_full", 
+            transforms=apply_augmentation) # test on full image
+
         mIOU, gdice = test(test_loader, net, save_path=save_path, 
                         num_classes=config['model']['kwargs']['output_channels'])
         print(f"mIOU: {mIOU}, gdice: {gdice}")
@@ -76,23 +78,24 @@ def main(hyperparam_config=None, seed=42):
 main()
 
 
-def get_best_params():
-    configspace = ConfigurationSpace({"conductivity": (0.0, 1.0),
-                                      "window_size": [2, 3, 4, 5, 6]
-                                      })
-    configspace = ConfigurationSpace({
-                                        "alpha": (0.0, 1.0),
-                                      "gamma": [2.0, 3.0, 4.0]
-                                      })
-    scenario = Scenario(configspace,
-                        name="get_loss_urban_best", 
-                        deterministic=True, n_trials=10)
-    smac = HyperparameterOptimizationFacade(scenario, main)
-    incumbent = smac.optimize()
-    
-    # Let's calculate the cost of the incumbent
-    incumbent_cost = smac.validate(incumbent)
-    print(f"Incumbent cost: {incumbent_cost}")
+# def get_best_params():
+#     configspace = ConfigurationSpace({"conductivity": (0.0, 1.0),
+#                                       "window_size": [2, 3, 4, 5, 6]
+#                                       })
+#     configspace = ConfigurationSpace({
+#                                         "alpha": (0.0, 1.0),
+#                                       "gamma": [2.0, 3.0, 4.0]
+#                                       })
+#     scenario = Scenario(configspace,
+#                         name="get_loss_urban_best", 
+#                         deterministic=True, n_trials=10)
+#     smac = HyperparameterOptimizationFacade(scenario, main)
+#     incumbent = smac.optimize()
+#     
+#     # Let's calculate the cost of the incumbent
+#     incumbent_cost = smac.validate(incumbent)
+#     print(f"Incumbent cost: {incumbent_cost}")
   
 
-get_best_params()
+# get_best_params()
+# main()

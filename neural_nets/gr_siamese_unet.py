@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch
 import pdb
-from .unet_base_blocks import Conv1x3x1
+from .unet_base_blocks import Conv1x3x1, ConvBlock
 from .utils import pad_to_power_of_2
 from einops import rearrange
 ## Siamese Unet with Learnable Channel attention
@@ -144,6 +144,37 @@ class NeuralFourierFeatureTransform(nn.Module):
         x_out = rearrange(x_out, "B (H W) C -> B C H W", H=H, W=W)
         return x_out
 
+
+class HSIToGTStem(nn.Module):
+    def __init__(self, in_channels, out_channels=None):
+        super().__init__()
+        if out_channels is None:
+            out_channels = in_channels
+
+        self.refine = nn.Sequential(
+            ConvBlock(in_channels, out_channels, kernel_size=3, stride=1),
+            ConvBlock(in_channels, out_channels, kernel_size=3, stride=1)
+        )
+
+    def forward(self, x):
+        x = F.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False)
+        x = self.refine(x)
+        return x
+
+
+class MSIToGTStem(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.stem = nn.Sequential(
+            ConvBlock(in_channels, 32, kernel_size=3, stride=2, padding=1),
+            ConvBlock(32, out_channels, kernel_size=5, stride=5, padding=2),
+            ConvBlock(out_channels, out_channels, kernel_size=3, stride=1)
+        )
+
+    def forward(self, x):
+        return self.stem(x)
+
+
 class SiameseEncoder(nn.Module):
     def __init__(self, hsi_in, msi_in, latent_dim, use_nfft=True):
         super().__init__()
@@ -155,20 +186,48 @@ class SiameseEncoder(nn.Module):
             hsi_in = 2 * hsi_in
             msi_in = 2 * msi_in
         self.channel_selector = IWCA(hsi_in)
+
+
+        self.hsi_to_gt = HSIToGTStem(hsi_in, hsi_in)
+        self.msi_to_gt = MSIToGTStem(msi_in, msi_in)
+
         self.hsi_enc = Down1x3x1(hsi_in, latent_dim)
         # msi_enc -> 3 x H x W -> -> 256  x 1 x 1
         self.msi_enc = Down1x3x1(msi_in, latent_dim)
         
     def forward(self, hsi, msi):
+
+        B, _, h, w = hsi.shape
+        _, _, H, W = msi.shape
+
+        gt_h = h * 2
+        gt_w = w * 2
+
+        expected_rgb_h = gt_h * 10
+        expected_rgb_w = gt_w * 10
+
+
+        if h_rgb != expected_rgb_h or w_rgb != expected_rgb_w:
+            raise ValueError(
+                f"RGB/HSI crop mismatch. "
+                f"Given HSI {h_hsi}x{w_hsi}, expected RGB {expected_rgb_h}x{expected_rgb_w}, "
+                f"got {h_rgb}x{w_rgb}."
+            )
+
         if self.use_nfft:
             hsi = self.gff_hsi(hsi)
             msi = self.gff_msi(msi)
+
         hsi = self.channel_selector(hsi)
-        z_hsi, hsi_out = self.hsi_enc(hsi)
-        z_msi, msi_out = self.msi_enc(msi) # apply bilinear upsample here
+
+        hsi_gt = self.hsi_to_gt(hsi)
+        msi_gt = self.msi_to_gt(msi)
+
+        z_hsi, hsi_out = self.hsi_enc(hsi_gt)
+        z_msi, msi_out = self.msi_enc(msi_gt) # apply bilinear upsample here
         # get scale of upsampling
-        sx, sy = z_msi.shape[-2] // z_hsi.shape[-2], z_msi.shape[-1] // z_hsi.shape[-1]
-        z_hsi = F.interpolate(z_hsi, scale_factor=(sx, sy))
+        # sx, sy = z_msi.shape[-2] // z_hsi.shape[-2], z_msi.shape[-1] // z_hsi.shape[-1]
+        # z_hsi = F.interpolate(z_hsi, scale_factor=(sx, sy))
         return z_hsi, z_msi, hsi_out, msi_out
 
 
@@ -187,7 +246,7 @@ class SegmentationDecoder(nn.Module):
         return x
 
 
-class CASiameseUNet(nn.Module):
+class GRSiameseUNet(nn.Module):
     def __init__(self, hsi_in, msi_in, latent_dim, output_channels, **kwargs):
         super().__init__()
         self.encoder = SiameseEncoder(hsi_in, msi_in, latent_dim, use_nfft=False)
@@ -195,10 +254,12 @@ class CASiameseUNet(nn.Module):
         
     def forward(self, hsi, msi):
         orig_ht, orig_width = msi.shape[2:]
-        hsi = hsi.to(torch.double)
-        msi = msi.to(torch.double)
-        msi = pad_to_power_of_2(msi)
-        hsi = pad_to_power_of_2(hsi)
+        # hsi = hsi.to(torch.double)
+        # msi = msi.to(torch.double)
+        hsi = hsi.float()
+        msi = msi.float()
+        # msi = pad_to_power_of_2(msi)
+        # hsi = pad_to_power_of_2(hsi)
         
         z_hsi, z_msi, hsi_out, msi_out = self.encoder(hsi, msi)
         z = torch.cat([z_hsi, z_msi], dim=1)
@@ -212,9 +273,10 @@ class CASiameseUNet(nn.Module):
 
 if __name__ == '__main__':
     # usage
-    model = CASiameseUNet(31, 3, 256, 5).to(torch.double)  # Assume output channels for segmentation map is 5
+    model = GRSiameseUNet(31, 3, 256, 5).to(torch.double)  # Assume output channels for segmentation map is 5
     for i in range(1, 5):
         hsi = torch.rand(2, 31, 64*i, 64*i).double()
         msi = torch.rand(2, 3, 256*i, 256*i).double()
         output = model(hsi, msi)
         print(output['preds'].shape)
+        
