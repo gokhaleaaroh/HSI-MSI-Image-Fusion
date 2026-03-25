@@ -13,10 +13,10 @@ dataset:
   name: grss
   kwargs:
     data_dir: './data/GRSS/ImageryAndTrainingGT/2018IEEE_Contest/Phase2/Aligned/'
-    rgb_width: 64
-    rgb_height: 64
-    hsi_width: 32
-    hsi_height: 32
+    rgb_width: 160
+    rgb_height: 160
+    hsi_width: 8 
+    hsi_height: 8 
     top_k: 12
     channels:
     gamma: 0.4

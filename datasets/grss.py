@@ -1,10 +1,9 @@
-from .base_dataset import BaseSegmentationDataset, adjust_gamma_hyperspectral
+from .base_dataset_grss import BaseSegmentationDatasetGRSS, adjust_gamma_hyperspectral
 from .contrast_enhancement import contrast_enhancement
 from train_utils.motioncode_selection import get_top_channels
 import spectral as sp
 import numpy as np
 import rasterio
-from scipy.ndimage import zoom
 
 def load_envi_data(pix_path, hdr_path):
     img = sp.envi.open(hdr_path, pix_path)
@@ -53,7 +52,7 @@ CLASS_NAMES = [
 
 NUM_SPECTRAL_BANDS = 48
 
-class GRSSDataset(BaseSegmentationDataset):
+class GRSSDataset(BaseSegmentationDatasetGRSS):
     def __init__(self, data_dir='./data/GRSS/ImageryAndTrainingGT/2018IEEE_Contest/Phase2/Aligned/',
                  top_k=12,
                  mode="train", transforms=None, split_ratio=0.8, seed=42,
@@ -73,8 +72,8 @@ class GRSSDataset(BaseSegmentationDataset):
         self.top_k = top_k
         num_classes = len(self.label_names)
 
-        self.channels = get_top_channels(num_motion=num_classes,
-                                         top_k=self.top_k,
+        self.channels = get_top_channels(num_motion=21, num_channels=47,
+                                         top_k=12,
                                          dataset_name='grss')
 
         print("top channels: ", self.channels)
@@ -106,19 +105,25 @@ class GRSSDataset(BaseSegmentationDataset):
                 conductivity=conductivity) / 255.0
 
         img_rgb = load_rgb("./data/GRSS/ImageryAndTrainingGT/2018IEEE_Contest/Phase2/Final RGB HR Imagery")
+        self.rgb = img_rgb
         print(f"  Mosaic shape: {img_rgb.shape}")
+
+
+        hsi_side = kwargs['hsi_width']
+        rgb_side = kwargs['rgb_width']
+        gt_side = 2*hsi_side
 
         super().__init__(
             img_sri=img_sri, img_rgb=img_rgb, gt=gt,
-            rgb_width=img_rgb.shape[1], rgb_height=img_rgb.shape[0],
-            hsi_width=img_sri.shape[1], hsi_height=img_sri.shape[0],
+            rgb_width=rgb_side, rgb_height=rgb_side,
+            hsi_width=hsi_side, hsi_height=hsi_side,
             channels=self.channels, top_k=self.top_k,
             mode=mode, transforms=transforms,
-            split_ratio=split_ratio, seed=seed, stride=8)
+            split_ratio=split_ratio, seed=seed, stride=hsi_side//2, gt_width=gt_side, gt_height=gt_side, data_type=None)
 
-    # def get_rgb(self, img_sri):
-    #     closest_bands = find_closest_bands(WAVELENGTHS, RGB_WAVELENGTHS)
-    #     R = img_sri[:, :, closest_bands[0]]
-    #     G = img_sri[:, :, closest_bands[1]]
-    #     B = img_sri[:, :, closest_bands[2]]
-    #     return np.stack((R, G, B), axis=-1)
+    def get_rgb(self, img_sri):
+        # closest_bands = find_closest_bands(WAVELENGTHS, RGB_WAVELENGTHS)
+        # R = img_sri[:, :, closest_bands[0]]
+        # G = img_sri[:, :, closest_bands[1]]
+        # B = img_sri[:, :, closest_bands[2]]
+        return self.img_rgb

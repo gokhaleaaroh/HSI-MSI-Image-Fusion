@@ -38,9 +38,14 @@ def main(hyperparam_config=None, seed=42):
     model_name = config['model']['name']
     dataset_name = config['dataset']['name']
     save_path = f'models/{model_name}_{dataset_name}.pth'
+    # train_dataset = dataset_factory[config['dataset']['name']](
+    #                 **config['dataset']['kwargs'], mode="train", 
+    #                 transforms=apply_augmentation)
     train_dataset = dataset_factory[config['dataset']['name']](
-                    **config['dataset']['kwargs'], mode="train", 
-                    transforms=apply_augmentation)
+        **config['dataset']['kwargs'], mode="train")
+
+    train_dataset.__getitem__(0) # to check if dataset is working
+
     print("Got here")
     train_loader = DataLoader(train_dataset, 
                               batch_size=config['dataset']['batch_size'], 

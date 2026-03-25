@@ -207,12 +207,12 @@ class SiameseEncoder(nn.Module):
         expected_rgb_w = gt_w * 10
 
 
-        if h_rgb != expected_rgb_h or w_rgb != expected_rgb_w:
-            raise ValueError(
-                f"RGB/HSI crop mismatch. "
-                f"Given HSI {h_hsi}x{w_hsi}, expected RGB {expected_rgb_h}x{expected_rgb_w}, "
-                f"got {h_rgb}x{w_rgb}."
-            )
+        # if h_rgb != expected_rgb_h or w_rgb != expected_rgb_w:
+        #     raise ValueError(
+        #         f"RGB/HSI crop mismatch. "
+        #         f"Given HSI {h_hsi}x{w_hsi}, expected RGB {expected_rgb_h}x{expected_rgb_w}, "
+        #         f"got {h_rgb}x{w_rgb}."
+        #     )
 
         if self.use_nfft:
             hsi = self.gff_hsi(hsi)
@@ -254,13 +254,12 @@ class GRSiameseUNet(nn.Module):
         
     def forward(self, hsi, msi):
         orig_ht, orig_width = msi.shape[2:]
-        # hsi = hsi.to(torch.double)
-        # msi = msi.to(torch.double)
-        hsi = hsi.float()
-        msi = msi.float()
+        hsi = hsi.to(torch.double)
+        msi = msi.to(torch.double)
+        # hsi = hsi.float()
+        # msi = msi.float()
         # msi = pad_to_power_of_2(msi)
         # hsi = pad_to_power_of_2(hsi)
-        
         z_hsi, z_msi, hsi_out, msi_out = self.encoder(hsi, msi)
         z = torch.cat([z_hsi, z_msi], dim=1)
         segmentation_map = self.decoder(z, hsi_out, msi_out)  
