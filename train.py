@@ -41,34 +41,35 @@ def main(hyperparam_config=None, seed=42):
     # train_dataset = dataset_factory[config['dataset']['name']](
     #                 **config['dataset']['kwargs'], mode="train", 
     #                 transforms=apply_augmentation)
-    train_dataset = dataset_factory[config['dataset']['name']](
-        **config['dataset']['kwargs'], mode="train")
 
-    train_dataset.__getitem__(0) # to check if dataset is working
+    # train_dataset = dataset_factory[config['dataset']['name']](
+    #     **config['dataset']['kwargs'], mode="train")
 
-    print("Got here")
-    train_loader = DataLoader(train_dataset, 
-                              batch_size=config['dataset']['batch_size'], 
-                              shuffle=True)
-    print("train:", train_dataset)
+    # train_dataset.__getitem__(0) # to check if dataset is working
 
-    print('total batches:', len(train_loader))
+    # print("Got here")
+    # train_loader = DataLoader(train_dataset, 
+    #                           batch_size=config['dataset']['batch_size'], 
+    #                           shuffle=True)
+    # print("train:", train_dataset)
+
+    #print('total batches:', len(train_loader))
     DEVICE = torch.device(f"cuda:{config['device']}" if torch.cuda.is_available() else "cpu")
     net = model_factory[model_name](**config['model']['kwargs']).to(torch.double).to(DEVICE)
-    optimizer = optim.Adam(net.parameters(), lr=0.001)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 
-                                                        mode='min', factor=0.5, patience=3)
-    # Initialize TensorBoard writer
-    writer = SummaryWriter()
-    final_ep_loss = main_training_loop(train_loader, net, optimizer, scheduler, 
-                       writer=writer, save_path=save_path,
-                    num_epochs=config["num_epochs"], device=DEVICE, log_interval=2, config=config)
-    # Close the writer
-    writer.close()
+    #optimizer = optim.Adam(net.parameters(), lr=0.001)
+    #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 
+    #                                                    mode='min', factor=0.5, patience=3)
+    ## Initialize TensorBoard writer
+    #writer = SummaryWriter()
+    ## final_ep_loss = main_training_loop(train_loader, net, optimizer, scheduler, 
+    ##                    writer=writer, save_path=save_path,
+    ##                 num_epochs=config["num_epochs"], device=DEVICE, log_interval=2, config=config)
+    ## Close the writer
+    #writer.close()
     if not hyperparam_config:
         test_dataset = dataset_factory[config['dataset']['name']](
             **config['dataset']['kwargs'], mode="test", 
-            transforms=apply_augmentation) # test on full image
+            transforms=None) # Test on test set
 
         test_loader = DataLoader(test_dataset,
             batch_size=config['dataset']['batch_size'], 

@@ -67,8 +67,9 @@ def test(testloader, net, save_path, num_classes, device=DEVICE):
     ''' Test via mIOU, GeneralizedDice metrics. TBA'''
     net.load_state_dict(torch.load(save_path))
     net.to(device)
-    miou = MeanIoU(num_classes=num_classes, per_class=True)
-    gdice = GeneralizedDiceScore(num_classes=num_classes, include_background=False)
+    print("Num classes ", num_classes)
+    miou = MeanIoU(num_classes=num_classes, per_class=True, input_format="index")
+    gdice = GeneralizedDiceScore(num_classes=num_classes, include_background=False, input_format="index")
     predictions = []
     truth_labels = []
     with torch.no_grad():
@@ -81,10 +82,14 @@ def test(testloader, net, save_path, num_classes, device=DEVICE):
     
     preds = torch.cat(predictions, axis=0)
     gt_lbls = torch.cat(truth_labels, axis=0)
+
     if len(preds.shape) == 1:
         H, W = testloader.dataset.gt.shape[:-1]
         preds = preds.reshape(1, H, W)
         gt_lbls = gt_lbls.reshape(1, H, W)
+
+    print("Going into miou")
     miou_score = miou(preds, gt_lbls).numpy()
+    print("Going into gdice")
     gdice_score = gdice(preds, gt_lbls).numpy()
     return miou_score, gdice_score

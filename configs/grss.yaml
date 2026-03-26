@@ -1,7 +1,7 @@
 experiment:
   name: 'grss_ca_siamese'
 device: 0
-num_epochs: 40
+num_epochs: 1
 model:
  name: gr_siamese
  kwargs:
