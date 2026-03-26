@@ -39,10 +39,13 @@ def main_training_loop(trainloader, net,
             # forward + backward + optimize
             outputs = net(hsi_batch.to(torch.double).to(device), 
                           rgb_batch.to(torch.double).to(device))
+
             if shape is None:
                 shape = outputs['preds'].shape
 
-            loss = loss_fn(outputs, labels_batch.reshape(shape).to(device))
+            # loss = loss_fn(outputs, labels_batch.reshape(shape).to(device))
+            loss = loss_fn(outputs, labels_batch.to(device))
+
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
