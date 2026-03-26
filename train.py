@@ -66,12 +66,13 @@ def main(hyperparam_config=None, seed=42):
     # Close the writer
     writer.close()
     if not hyperparam_config:
+        test_dataset = dataset_factory[config['dataset']['name']](
+            **config['dataset']['kwargs'], mode="test", 
+            transforms=apply_augmentation) # test on full image
+
         test_loader = DataLoader(test_dataset,
             batch_size=config['dataset']['batch_size'], 
             shuffle=True)
-        test_dataset = dataset_factory[config['dataset']['name']](
-            **config['dataset']['kwargs'], mode="test_full", 
-            transforms=apply_augmentation) # test on full image
 
         mIOU, gdice = test(test_loader, net, save_path=save_path, 
                         num_classes=config['model']['kwargs']['output_channels'])

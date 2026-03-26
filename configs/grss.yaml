@@ -25,7 +25,7 @@ dataset:
     window_size: 3
     split_ratio: 0.8
     data_type: patch       # spatial patches, not pixels
-  batch_size: 4           # patches are larger, fewer per batch
+  batch_size: 128           # patches are larger, fewer per batch
 loss:
   name: focal
   kwargs:
