@@ -153,7 +153,7 @@ class HSIToGTStem(nn.Module):
 
         self.refine = nn.Sequential(
             ConvBlock(in_channels, out_channels, kernel_size=3, stride=1),
-            ConvBlock(in_channels, out_channels, kernel_size=3, stride=1)
+            ConvBlock(out_channels, out_channels, kernel_size=3, stride=1)
         )
 
     def forward(self, x):
@@ -165,14 +165,23 @@ class HSIToGTStem(nn.Module):
 class MSIToGTStem(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.stem = nn.Sequential(
+        self.pre = nn.Sequential(
             ConvBlock(in_channels, 32, kernel_size=3, stride=2, padding=1),
-            ConvBlock(32, out_channels, kernel_size=5, stride=5, padding=2),
-            ConvBlock(out_channels, out_channels, kernel_size=3, stride=1)
+            ConvBlock(32, 64, kernel_size=3, stride=2, padding=1),
+            ConvBlock(64, 64, kernel_size=3, stride=2, padding=1),
+        )
+        self.post = nn.Sequential(
+            ConvBlock(64, out_channels, kernel_size=3, stride=1, padding=1),
+            ConvBlock(out_channels, out_channels, kernel_size=3, stride=1, padding=1),
         )
 
     def forward(self, x):
-        return self.stem(x)
+        x = self.pre(x)
+        h, w = x.shape[-2:]
+        gt_size = (h * 8 // 10, w * 8 // 10)
+        x = F.interpolate(x, size=gt_size, mode="bilinear", align_corners=False)
+        x = self.post(x)
+        return x
 
 
 class SiameseEncoder(nn.Module):
