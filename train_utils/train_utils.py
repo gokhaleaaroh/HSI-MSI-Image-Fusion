@@ -65,7 +65,7 @@ def main_training_loop(trainloader, net,
 
 def test(testloader, net, save_path, num_classes, device=DEVICE):
     ''' Test via mIOU, GeneralizedDice metrics. TBA'''
-    net.load_state_dict(torch.load(save_path))
+    net.load_state_dict(torch.load(save_path, map_location=torch.device('cpu')))
     net.to(device)
     print("Num classes ", num_classes)
     miou = MeanIoU(num_classes=num_classes, per_class=True, input_format="index")
@@ -92,4 +92,81 @@ def test(testloader, net, save_path, num_classes, device=DEVICE):
     miou_score = miou(preds, gt_lbls).numpy()
     print("Going into gdice")
     gdice_score = gdice(preds, gt_lbls).numpy()
+    return miou_score, gdice_score
+
+
+
+
+
+
+import random
+import matplotlib.pyplot as plt
+def test_viz(testloader, net, save_path, num_classes, device=DEVICE, visualize=True):
+    """Test via mIoU, GeneralizedDice metrics, with optional sample visualization."""
+    net.load_state_dict(torch.load(save_path, map_location=torch.device('cpu')))
+    net.to(device)
+    net.eval()
+
+    print("Num classes ", num_classes)
+
+    miou = MeanIoU(num_classes=num_classes, per_class=True, input_format="index")
+    gdice = GeneralizedDiceScore(
+        num_classes=num_classes,
+        include_background=False,
+        input_format="index"
+    )
+
+    predictions = []
+    truth_labels = []
+
+    with torch.no_grad():
+        for batch_idx, data in enumerate(testloader):
+            hsi_batch, rgb_batch, labels_batch = data
+
+            outputs = net(
+                hsi_batch.to(torch.double).to(device),
+                rgb_batch.to(torch.double).to(device)
+            )
+
+            # Predicted class indices: [B, H, W]
+            batch_preds = torch.argmax(outputs['preds'].cpu(), dim=1)
+
+            # Ground truth class indices: [B, H, W]
+            batch_truth = torch.argmax(labels_batch, dim=1)
+
+            predictions.append(batch_preds)
+            truth_labels.append(batch_truth)
+
+            # Visualize one random sample from this batch
+            if visualize:
+                sample_idx = random.randint(0, batch_preds.shape[0] - 1)
+
+                pred_patch = batch_preds[sample_idx].numpy()   # shape [16, 16]
+                true_patch = batch_truth[sample_idx].numpy()   # shape [16, 16]
+
+                fig, axes = plt.subplots(1, 2, figsize=(8, 4))
+
+                im0 = axes[0].imshow(true_patch, vmin=0, vmax=num_classes - 1, interpolation='nearest')
+                axes[0].set_title(f"Ground Truth (batch {batch_idx}, sample {sample_idx})")
+                axes[0].axis("off")
+
+                im1 = axes[1].imshow(pred_patch, vmin=0, vmax=num_classes - 1, interpolation='nearest')
+                axes[1].set_title(f"Prediction (batch {batch_idx}, sample {sample_idx})")
+                axes[1].axis("off")
+
+                fig.colorbar(im1, ax=axes.ravel().tolist(), shrink=0.8, label="Class Index")
+                plt.tight_layout()
+                plt.show()
+
+    preds = torch.cat(predictions, dim=0)
+    gt_lbls = torch.cat(truth_labels, dim=0)
+
+    if len(preds.shape) == 1:
+        H, W = testloader.dataset.gt.shape[:-1]
+        preds = preds.reshape(1, H, W)
+        gt_lbls = gt_lbls.reshape(1, H, W)
+
+    miou_score = miou(preds, gt_lbls).numpy()
+    gdice_score = gdice(preds, gt_lbls).numpy()
+
     return miou_score, gdice_score

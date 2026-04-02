@@ -17,25 +17,25 @@ def find_k_furthest_points(arr, k):
         max_distance = -1
         next_point = None
         next_index = -1
-        
+
         for i in range(len(sorted_arr)):
             if i in used_indices:
                 continue
-            
+
             # Calculate the minimum distance of this point to the current set of furthest points
             min_distance = min(abs(sorted_arr[i] - point) for point in furthest_points)
-            
+
             # Update the furthest point if this distance is larger
             if min_distance > max_distance:
                 max_distance = min_distance
                 next_point = sorted_arr[i]
                 next_index = i
-        
+
         # Add the next furthest point to the list
         if next_point is not None:
             furthest_points.append(next_point)
             used_indices.add(next_index)
-    
+
     return np.array(furthest_points)
 
 

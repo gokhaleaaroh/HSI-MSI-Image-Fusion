@@ -85,7 +85,7 @@ def optimize_motion_codes(X_list, Y_list, labels, model_path, m=10, Q=8, latent_
     np.save(model_path, model)
     return
 
-def optimize_motion_codes_gpu(X_list, Y_list, labels, model_path, m=10, Q=8, latent_dim=3, sigma_y=0.1, maxiter=50000, tol=1e-6):
+def optimize_motion_codes_gpu(X_list, Y_list, labels, model_path, m=10, Q=8, latent_dim=3, sigma_y=0.1, maxiter=150000, tol=1e-7):
     '''
     GPU-accelerated version of optimize_motion_codes.
     Uses PyTorch's L-BFGS optimizer so the entire optimization loop
