@@ -1,7 +1,6 @@
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
-import pdb
 from .unet_base_blocks import Conv1x3x1
 from .utils import pad_to_power_of_2
 from einops import rearrange
@@ -131,10 +130,9 @@ class SiameseEncoder(nn.Module):
     def forward(self, hsi, msi):
         hsi = self.channel_selector(hsi)
         z_hsi, hsi_out = self.hsi_enc(hsi)
-        z_msi, msi_out = self.msi_enc(msi) # apply bilinear upsample here
-        # get scale of upsampling
-        sx, sy = z_msi.shape[-2] // z_hsi.shape[-2], z_msi.shape[-1] // z_hsi.shape[-1]
-        z_hsi = F.interpolate(z_hsi, scale_factor=(sx, sy))
+        z_msi, msi_out = self.msi_enc(msi)
+        z_hsi = F.interpolate(z_hsi, size=z_msi.shape[-2:],
+                              mode='bilinear', align_corners=False)
         return z_hsi, z_msi, hsi_out, msi_out
 
 
@@ -213,92 +211,88 @@ class FourierCrossAttention(nn.Module):
         self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, x, y):
-        # Apply Fourier Transform
+        b, c, h, w = x.shape
+
         x_freq = fourier_transform(x)
         y_freq = fourier_transform(y)
-        
-        # Split into real and imaginary parts
-        x_real, x_imag = x_freq.real, x_freq.imag
-        y_real, y_imag = y_freq.real, y_freq.imag
-        
-        # Ensure the dimensions are compatible
-        x_real = x_real.view(-1, self.input_dim)
-        x_imag = x_imag.view(-1, self.input_dim)
-        y_real = y_real.view(-1, self.input_dim)
-        y_imag = y_imag.view(-1, self.input_dim)
-        
-        # Compute queries, keys, and values for real and imaginary parts
+
+        # Reshape [B, C, H, W] -> [B, H*W, C] so each spatial position is a token
+        x_real = rearrange(x_freq.real, 'b c h w -> b (h w) c')
+        x_imag = rearrange(x_freq.imag, 'b c h w -> b (h w) c')
+        y_real = rearrange(y_freq.real, 'b c h w -> b (h w) c')
+        y_imag = rearrange(y_freq.imag, 'b c h w -> b (h w) c')
+
+        # Complex-valued linear projections: (a+bi)(c+di) = (ac-bd) + (ad+bc)i
         Q_real = self.query_real(x_real) - self.query_imag(x_imag)
         Q_imag = self.query_real(x_imag) + self.query_imag(x_real)
-        
+
         K_real = self.key_real(y_real) - self.key_imag(y_imag)
         K_imag = self.key_real(y_imag) + self.key_imag(y_real)
-        
+
         V_real = self.value_real(y_real) - self.value_imag(y_imag)
         V_imag = self.value_real(y_imag) + self.value_imag(y_real)
-        
-        # Reshape back to batch form for attention computation
-        b, n = x.shape[0], x.shape[2] * x.shape[3]
-        Q_real = Q_real.view(b, n, -1)
-        Q_imag = Q_imag.view(b, n, -1)
-        K_real = K_real.view(b, n, -1)
-        K_imag = K_imag.view(b, n, -1)
-        V_real = V_real.view(b, n, -1)
-        V_imag = V_imag.view(b, n, -1)
-        
-        # Compute attention
+
         attention_scores_real = torch.matmul(Q_real, K_real.transpose(-2, -1)) - torch.matmul(Q_imag, K_imag.transpose(-2, -1))
         attention_scores_imag = torch.matmul(Q_real, K_imag.transpose(-2, -1)) + torch.matmul(Q_imag, K_real.transpose(-2, -1))
-        attention_scores = torch.sqrt(attention_scores_real**2 + attention_scores_imag**2)
-        
+        attention_scores = torch.sqrt(attention_scores_real**2 + attention_scores_imag**2 + 1e-8)
+
         attention_weights = self.softmax(attention_scores)
-        
-        attention_output_real = torch.matmul(attention_weights, V_real)
-        attention_output_imag = torch.matmul(attention_weights, V_imag)
-        
-        # Combine real and imaginary parts
-        attention_output = attention_output_real + 1j * attention_output_imag
-        
-        # Inverse Fourier Transform
-        attention_output = inverse_fourier_transform(attention_output)
-        return torch.view_as_real(attention_output)
+
+        out_real = torch.matmul(attention_weights, V_real)
+        out_imag = torch.matmul(attention_weights, V_imag)
+
+        # Reshape back to spatial layout and inverse FFT
+        out_complex = torch.complex(out_real, out_imag)
+        out_complex = rearrange(out_complex, 'b (h w) c -> b c h w', h=h, w=w)
+        out = inverse_fourier_transform(out_complex).real
+
+        return out
 
 class CustomTransformerDecoderWithFourier(nn.Module):
-    def __init__(self, input_dim, num_classes, patch_size, input_size):
+    def __init__(self, input_dim, num_classes):
         super(CustomTransformerDecoderWithFourier, self).__init__()
         self.input_dim = input_dim
         self.num_classes = num_classes
-        self.patch_size = patch_size
-        self.input_size = input_size
 
-        # Cross Attention with Fourier
         self.cross_attention = FourierCrossAttention(input_dim)
-        
-        # Transformer decoder configuration
+
         decoder_layer = nn.TransformerDecoderLayer(d_model=input_dim, nhead=8)
         self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers=6)
-        self.linear = nn.Linear(input_dim, num_classes)
 
-    def forward(self, encoder_output, original_shape):
-        # Reshape encoder output to sequence format
+        # 3 stages of 2x upsampling (8x total) to recover spatial resolution
+        self.upsample = nn.Sequential(
+            nn.ConvTranspose2d(input_dim, input_dim // 2,
+                               kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(input_dim // 2),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(input_dim // 2, input_dim // 4,
+                               kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(input_dim // 4),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(input_dim // 4, input_dim // 8,
+                               kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(input_dim // 8),
+            nn.ReLU(inplace=True),
+        )
+        self.seg_head = nn.Conv2d(input_dim // 8, num_classes, kernel_size=1)
+
+    def forward(self, encoder_output, target_size):
         b, c, h, w = encoder_output.size()
         n = h * w
-        src = encoder_output.view(b, c, n).permute(2, 0, 1)  # (n, b, c)
-        # Create a sequence of positional encodings matching the original spatial dimensions
-        tgt = torch.zeros((n, b, c), device=encoder_output.device)
-        
-        # Apply Cross Attention in Fourier domain
-        src = self.cross_attention(encoder_output, encoder_output)
-        # [2048, 4, 512, 2]
-        # Pass through transformer decoder
-        decoder_output = self.transformer_decoder(tgt, src)
-        # Reshape back to image format
-        decoder_output = decoder_output.permute(1, 0, 2).contiguous()
-        decoder_output = decoder_output.view(b, h, w, -1)
-        decoder_output = decoder_output.permute(0, 3, 1, 2)  # (b, d, h, w)
-        pdb.set_trace()
-        # Apply final linear layer to match number of classes
-        output = self.linear(decoder_output)
+
+        attended = self.cross_attention(encoder_output, encoder_output)
+        src = attended.reshape(b, c, n).permute(2, 0, 1)  # (n, b, c)
+        tgt = torch.zeros((n, b, c), device=encoder_output.device,
+                           dtype=encoder_output.dtype)
+
+        decoder_output = self.transformer_decoder(tgt, src)  # (n, b, c)
+        decoder_output = decoder_output.permute(1, 2, 0).reshape(b, c, h, w)
+
+        decoder_output = self.upsample(decoder_output)
+        decoder_output = F.interpolate(decoder_output, size=target_size,
+                                       mode='bilinear', align_corners=False)
+
+        output = self.seg_head(decoder_output)
         return output
     
 class CrossAttentionBlock(nn.Module):
@@ -310,10 +304,10 @@ class CrossAttentionBlock(nn.Module):
         self.gamma = nn.Parameter(torch.zeros(1))
 
     def forward(self, z_hsi, z_msi):
-        if z_hsi.shape[-2] > z_msi.shape[-2]:
-            sx, sy = z_hsi.shape[-2] // z_msi.shape[-2], z_hsi.shape[-1] // z_msi.shape[-1]
-            z_msi = F.interpolate(z_msi, scale_factor=(sx, sy))
-        
+        if z_hsi.shape[-2:] != z_msi.shape[-2:]:
+            z_msi = F.interpolate(z_msi, size=z_hsi.shape[-2:],
+                                  mode='bilinear', align_corners=False)
+
         batch_size, _, height, width = z_hsi.size()
         
         # Project HSI embeddings to queries
@@ -344,53 +338,50 @@ class CASiameseTransformer(nn.Module):
         self.cross_attention = CrossAttentionBlock(
             hsi_channels=latent_dim, msi_channels=latent_dim, out_channels=latent_dim)
         self.decoder = CustomTransformerDecoderWithFourier(latent_dim,
-                                                           num_classes=output_channels,
-                                                           patch_size=16,
-                                                           input_size=16)
-        
-    def forward(self, hsi, msi):
-        orig_ht, orig_width = msi.shape[2:]
+                                                           num_classes=output_channels)
 
-        orig_ht = orig_ht // 10
-        orig_width = orig_width // 10
+    def forward(self, hsi, msi):
+        # HSI: [B, C_hsi, h, w]  (low-res hyperspectral)
+        # MSI: [B, C_msi, 20h, 20w]  (high-res RGB, 20x HSI each dim)
+        # Output: [B, classes, 2h, 2w]  (GT resolution, 2x HSI each dim)
+        hsi_h, hsi_w = hsi.shape[2:]
+        gt_h, gt_w = hsi_h * 2, hsi_w * 2
+
+        # Downsample MSI from native resolution to GT resolution (10x reduction
+        # each dim) so the encoder operates at a tractable scale while still
+        # giving the MSI branch 2x the spatial extent of HSI.
+        msi_down = F.interpolate(msi, size=(gt_h, gt_w),
+                                 mode='area')
 
         hsi = hsi.to(torch.double)
-        msi = msi.to(torch.double)
-        msi = pad_to_power_of_2(msi)
+        msi_down = msi_down.to(torch.double)
         hsi = pad_to_power_of_2(hsi)
-        
-        z_hsi, z_msi, hsi_out, msi_out = self.encoder(hsi, msi)
-        z = torch.cat([z_hsi, z_msi], dim=1)
-        # Apply attention
+        msi_down = pad_to_power_of_2(msi_down)
+
+        z_hsi, z_msi, hsi_out, msi_out = self.encoder(hsi, msi_down)
+
         z_hsi = self.attention(z_hsi)
         z_msi = self.attention(z_msi)
         z = self.cross_attention(z_hsi, z_msi)
-        segmentation_map = self.decoder(z, (orig_ht, orig_width))  
+
+        segmentation_map = self.decoder(z, (gt_h, gt_w))
+
         outputs = {
-            'preds': segmentation_map[:, :, :orig_ht, :orig_width],
+            'preds': segmentation_map,
             'embeddings': [z_hsi, z_msi]
         }
         return outputs
 
 
 if __name__ == '__main__':
-    # usage
-    model = CASiameseTransformer(31, 3, 256, 5)  # Assume output channels for segmentation map is 5
+    # HSI at h×w, MSI at 20h×20w, GT (output) at 2h×2w
+    model = CASiameseTransformer(31, 3, 256, 5).double()
     for i in range(1, 5):
-        hsi = torch.rand(2, 31, 64*i, 64*i)
-        msi = torch.rand(2, 3, 256*i, 256*i)
+        h, w = 8 * i, 8 * i
+        hsi = torch.rand(2, 31, h, w)
+        msi = torch.rand(2, 3, 20 * h, 20 * w)
         output = model(hsi, msi)
-        print(output.shape)
-        # instead of output, we will use the loss to compute which channel 
-        # inflences the training more than others
-        # lower loss also means that those channels are better
-        # full jacobian -> [2, 5, 256, 256, 2, 31, 1, 1] so take mean 
-        # jacobian computation
-        # output = model(hsi, msi)
-        # jacobian = torch.autograd.functional.jacobian(lambda x: output.mean((2, 3)), 
-        #                                 model.encoder.channel_selector.importance_wts)
-        # jacobian = jacobian.squeeze() # [2, 5, 2, 31]
-        # jacobian = jacobian.mean((0, 2)) # [5, 31]
-        # print(jacobian.shape)
-        
-
+        gt_shape = (2 * h, 2 * w)
+        print(f"HSI: {hsi.shape}, MSI: {msi.shape}, "
+              f"Preds: {output['preds'].shape}, "
+              f"Expected GT: (2, 5, {gt_shape[0]}, {gt_shape[1]})")
