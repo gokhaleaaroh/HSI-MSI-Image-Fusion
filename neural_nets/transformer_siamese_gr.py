@@ -330,7 +330,7 @@ class CrossAttentionBlock(nn.Module):
         
         return out
 
-class CASiameseTransformer(nn.Module):
+class CASiameseTransformerGR(nn.Module):
     def __init__(self, hsi_in, msi_in, latent_dim, output_channels, **kwargs):
         super().__init__()
         self.encoder = SiameseEncoder(hsi_in, msi_in, latent_dim)
@@ -373,15 +373,15 @@ class CASiameseTransformer(nn.Module):
         return outputs
 
 
-if __name__ == '__main__':
-    # HSI at h×w, MSI at 20h×20w, GT (output) at 2h×2w
-    model = CASiameseTransformer(31, 3, 256, 5).double()
-    for i in range(1, 5):
-        h, w = 8 * i, 8 * i
-        hsi = torch.rand(2, 31, h, w)
-        msi = torch.rand(2, 3, 20 * h, 20 * w)
-        output = model(hsi, msi)
-        gt_shape = (2 * h, 2 * w)
-        print(f"HSI: {hsi.shape}, MSI: {msi.shape}, "
-              f"Preds: {output['preds'].shape}, "
-              f"Expected GT: (2, 5, {gt_shape[0]}, {gt_shape[1]})")
+# if __name__ == '__main__':
+#     # HSI at h×w, MSI at 20h×20w, GT (output) at 2h×2w
+#     model = CASiameseTransformer(31, 3, 256, 5).double()
+#     for i in range(1, 5):
+#         h, w = 8 * i, 8 * i
+#         hsi = torch.rand(2, 31, h, w)
+#         msi = torch.rand(2, 3, 20 * h, 20 * w)
+#         output = model(hsi, msi)
+#         gt_shape = (2 * h, 2 * w)
+#         print(f"HSI: {hsi.shape}, MSI: {msi.shape}, "
+#               f"Preds: {output['preds'].shape}, "
+#               f"Expected GT: (2, 5, {gt_shape[0]}, {gt_shape[1]})")
