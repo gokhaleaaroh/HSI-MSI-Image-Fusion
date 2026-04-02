@@ -263,10 +263,6 @@ class FourierCrossAttention(nn.Module):
         attention_output = inverse_fourier_transform(attention_output)
         return torch.view_as_real(attention_output)
 
-
-
-
-    
 class CustomTransformerDecoderWithFourier(nn.Module):
     def __init__(self, input_dim, num_classes, patch_size, input_size):
         super(CustomTransformerDecoderWithFourier, self).__init__()
@@ -354,6 +350,10 @@ class CASiameseTransformer(nn.Module):
         
     def forward(self, hsi, msi):
         orig_ht, orig_width = msi.shape[2:]
+
+        orig_ht = orig_ht // 10
+        orig_width = orig_width // 10
+
         hsi = hsi.to(torch.double)
         msi = msi.to(torch.double)
         msi = pad_to_power_of_2(msi)
